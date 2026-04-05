@@ -5,17 +5,21 @@ import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.Input
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.GL20
+import com.badlogic.gdx.graphics.OrthographicCamera
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer
 import com.badlogic.gdx.math.MathUtils
 import com.badlogic.gdx.math.Rectangle
+import com.badlogic.gdx.utils.viewport.FitViewport
 
 class GameConfig(
     var numLanes: Int = 5,
-    val initialGameSpeed: Float = 500f,
-    var gameSpeed: Float = 500f, // Prędkość drogi (piksele na sekundę)
+    val initialGameSpeed: Float = 600f,
+    var gameSpeed: Float = 600f, // Prędkość drogi (jednostki na sekundę)
     var animationSpeed: Float = 0.2f, // Współczynnik lerp dla animacji zmiany pasa
     var obstacleSpawnInterval: Float = 1.0f, // Jak często pojawia się przeszkoda (sekundy)
-    val maxGameSpeed: Float = 1500f
+    val maxGameSpeed: Float = 1800f,
+    val virtualWidth: Float = 1000f,
+    val virtualHeight: Float = 1500f // "Dłuższa" trasa w pionie
 )
 
 class Player(var currentLane: Int, var numLanes: Int) {
@@ -67,14 +71,14 @@ class Obstacle(var lane: Int, var y: Float, val width: Float, val height: Float)
 }
 
 class LaneManager(private val config: GameConfig) {
-    var screenWidth: Float = 0f
-    var screenHeight: Float = 0f
     var laneWidth: Float = 0f
 
-    fun updateSize(width: Int, height: Int) {
-        screenWidth = width.toFloat()
-        screenHeight = height.toFloat()
-        laneWidth = screenWidth / config.numLanes
+    init {
+        updateLaneWidth()
+    }
+
+    fun updateLaneWidth() {
+        laneWidth = config.virtualWidth / config.numLanes
     }
 
     fun getLaneCenterX(laneIndex: Int): Float {
@@ -85,6 +89,8 @@ class LaneManager(private val config: GameConfig) {
 class AutoslalomGame : ApplicationAdapter() {
 
     private lateinit var shapeRenderer: ShapeRenderer
+    private lateinit var camera: OrthographicCamera
+    private lateinit var viewport: FitViewport
     private lateinit var config: GameConfig
     private lateinit var laneManager: LaneManager
     private lateinit var player: Player
@@ -99,9 +105,12 @@ class AutoslalomGame : ApplicationAdapter() {
     override fun create() {
         shapeRenderer = ShapeRenderer()
         config = GameConfig(numLanes = 5)
-        laneManager = LaneManager(config)
         
-        laneManager.updateSize(Gdx.graphics.width, Gdx.graphics.height)
+        camera = OrthographicCamera()
+        viewport = FitViewport(config.virtualWidth, config.virtualHeight, camera)
+        camera.position.set(config.virtualWidth / 2f, config.virtualHeight / 2f, 0f)
+        
+        laneManager = LaneManager(config)
         
         player = Player(config.numLanes / 2, config.numLanes)
         player.visualX = laneManager.getLaneCenterX(player.currentLane)
@@ -151,7 +160,7 @@ class AutoslalomGame : ApplicationAdapter() {
 
     private fun changeLaneCount(newCount: Int) {
         config.numLanes = newCount
-        laneManager.updateSize(Gdx.graphics.width, Gdx.graphics.height)
+        laneManager.updateLaneWidth()
         player.reset(newCount / 2, newCount, laneManager)
         obstacles.clear() // Czyścimy przeszkody przy zmianie układu pasów
         Gdx.app.log("AutoslalomGame", "Zmiana liczby pasów na: $newCount")
@@ -204,14 +213,16 @@ class AutoslalomGame : ApplicationAdapter() {
     private fun spawnObstacle() {
         val lane = MathUtils.random(0, config.numLanes - 1)
         val width = laneManager.laneWidth * 0.4f
-        val height = width * 1.2f
-        obstacles.add(Obstacle(lane, laneManager.screenHeight, width, height))
+        val height = width * 1.5f // Nieco "dłuższe" przeszkody dla lepszego wyglądu
+        obstacles.add(Obstacle(lane, config.virtualHeight, width, height))
     }
 
     private fun draw() {
         Gdx.gl.glClearColor(0.15f, 0.15f, 0.15f, 1f)
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT)
 
+        camera.update()
+        shapeRenderer.projectionMatrix = camera.combined
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled)
 
         // Rysowanie pasów i przerywanych linii
@@ -220,11 +231,11 @@ class AutoslalomGame : ApplicationAdapter() {
             
             if (i == 0 || i == config.numLanes) {
                 shapeRenderer.color = Color.WHITE
-                shapeRenderer.rect(x - 4, 0f, 8f, laneManager.screenHeight)
+                shapeRenderer.rect(x - 4, 0f, 8f, config.virtualHeight)
             } else {
                 shapeRenderer.color = Color.GRAY
                 var y = roadOffset
-                while (y < laneManager.screenHeight) {
+                while (y < config.virtualHeight) {
                     if (y + 50f > 0) {
                         shapeRenderer.rect(x - 2, y, 4f, 50f)
                     }
@@ -264,8 +275,7 @@ class AutoslalomGame : ApplicationAdapter() {
     }
 
     override fun resize(width: Int, height: Int) {
-        laneManager.updateSize(width, height)
-        player.visualX = laneManager.getLaneCenterX(player.targetLane)
+        viewport.update(width, height)
     }
 
     override fun dispose() {
