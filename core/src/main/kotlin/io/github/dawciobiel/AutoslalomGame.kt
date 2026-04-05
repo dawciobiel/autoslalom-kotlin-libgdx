@@ -164,9 +164,14 @@ class AutoslalomGame : ApplicationAdapter() {
     }
 
     override fun render() {
+        val delta = Gdx.graphics.deltaTime
+        
+        // Efekty wizualne aktualizujemy zawsze, nawet po Game Over
+        updateVisualEffects(delta)
+
         if (!isGameOver) {
             handleInput()
-            update(Gdx.graphics.deltaTime)
+            update(delta)
         } else {
             if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE) || Gdx.input.isKeyJustPressed(Input.Keys.ENTER)) {
                 resetGame()
@@ -215,32 +220,36 @@ class AutoslalomGame : ApplicationAdapter() {
         Gdx.app.log("AutoslalomGame", "Zmiana liczby pasów na: $newCount")
     }
 
-    private fun update(delta: Float) {
-        player.update(delta, laneManager, config)
-        gameTime += delta
-        score += 1 // Bonus za dystans
-
+    private fun updateVisualEffects(delta: Float) {
         // Trzęsienie kamerą (wygasanie)
         if (shakeDuration > 0) {
             shakeDuration -= delta
             shakeAmount = MathUtils.lerp(shakeAmount, 0f, 0.1f)
         } else {
             shakeAmount = 0f
+            shakeDuration = 0f
         }
+
+        // Aktualizacja śladów opon (tylko wygasanie alfa, jeśli gra stoi)
+        val currentSpeed = if (isGameOver) 0f else config.gameSpeed
+        val skidIterator = skidMarks.iterator()
+        while (skidIterator.hasNext()) {
+            val mark = skidIterator.next()
+            mark.update(delta, currentSpeed)
+            if (mark.y < -100f || mark.alpha <= 0f) skidIterator.remove()
+        }
+    }
+
+    private fun update(delta: Float) {
+        player.update(delta, laneManager, config)
+        gameTime += delta
+        score += 1 // Bonus za dystans
 
         // Dodawanie śladów opon przy skręcie
         if (Math.abs(player.rotation) > 5f) {
             val offset = player.bounds.width * 0.35f
             skidMarks.add(SkidMark(player.visualX - offset, player.bounds.y, 8f))
             skidMarks.add(SkidMark(player.visualX + offset, player.bounds.y, 8f))
-        }
-
-        // Aktualizacja śladów opon
-        val skidIterator = skidMarks.iterator()
-        while (skidIterator.hasNext()) {
-            val mark = skidIterator.next()
-            mark.update(delta, config.gameSpeed)
-            if (mark.y < -100f || mark.alpha <= 0f) skidIterator.remove()
         }
 
         // Progresja trudności co 5 sekund
