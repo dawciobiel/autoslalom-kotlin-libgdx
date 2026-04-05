@@ -7,17 +7,20 @@ import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.GL20
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer
 import com.badlogic.gdx.math.MathUtils
+import com.badlogic.gdx.math.Rectangle
 
 class GameConfig(
     var numLanes: Int = 5,
     var gameSpeed: Float = 500f, // Prędkość drogi (piksele na sekundę)
-    var animationSpeed: Float = 0.2f // Współczynnik lerp dla animacji zmiany pasa
+    var animationSpeed: Float = 0.2f, // Współczynnik lerp dla animacji zmiany pasa
+    var obstacleSpawnInterval: Float = 1.0f // Jak często pojawia się przeszkoda (sekundy)
 )
 
 class Player(var currentLane: Int, var numLanes: Int) {
     var targetLane: Int = currentLane
     var visualX: Float = 0f
     var targetX: Float = 0f
+    val bounds = Rectangle()
 
     fun update(delta: Float, laneManager: LaneManager, config: GameConfig) {
         targetX = laneManager.getLaneCenterX(targetLane)
@@ -29,6 +32,10 @@ class Player(var currentLane: Int, var numLanes: Int) {
             visualX = targetX
             currentLane = targetLane
         }
+
+        val width = laneManager.laneWidth * 0.5f
+        val height = width * 1.6f
+        bounds.set(visualX - width / 2, 80f, width, height)
     }
 
     fun moveLeft() {
@@ -44,6 +51,16 @@ class Player(var currentLane: Int, var numLanes: Int) {
         targetLane = newLane
         numLanes = newNumLanes
         visualX = laneManager.getLaneCenterX(currentLane)
+    }
+}
+
+class Obstacle(var lane: Int, var y: Float, val width: Float, val height: Float) {
+    val bounds = Rectangle()
+
+    fun update(delta: Float, gameSpeed: Float, laneManager: LaneManager) {
+        y -= gameSpeed * delta
+        val x = laneManager.getLaneCenterX(lane)
+        bounds.set(x - width / 2, y, width, height)
     }
 }
 
@@ -70,7 +87,10 @@ class AutoslalomGame : ApplicationAdapter() {
     private lateinit var laneManager: LaneManager
     private lateinit var player: Player
     
+    private val obstacles = mutableListOf<Obstacle>()
+    private var spawnTimer: Float = 0f
     private var roadOffset: Float = 0f
+    private var isGameOver: Boolean = false
 
     override fun create() {
         shapeRenderer = ShapeRenderer()
@@ -86,9 +106,23 @@ class AutoslalomGame : ApplicationAdapter() {
     }
 
     override fun render() {
-        handleInput()
-        update(Gdx.graphics.deltaTime)
+        if (!isGameOver) {
+            handleInput()
+            update(Gdx.graphics.deltaTime)
+        } else {
+            if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE) || Gdx.input.isKeyJustPressed(Input.Keys.ENTER)) {
+                resetGame()
+            }
+        }
         draw()
+    }
+
+    private fun resetGame() {
+        isGameOver = false
+        obstacles.clear()
+        spawnTimer = 0f
+        player.reset(config.numLanes / 2, config.numLanes, laneManager)
+        Gdx.app.log("AutoslalomGame", "Gra zresetowana.")
     }
 
     private fun handleInput() {
@@ -111,6 +145,7 @@ class AutoslalomGame : ApplicationAdapter() {
         config.numLanes = newCount
         laneManager.updateSize(Gdx.graphics.width, Gdx.graphics.height)
         player.reset(newCount / 2, newCount, laneManager)
+        obstacles.clear() // Czyścimy przeszkody przy zmianie układu pasów
         Gdx.app.log("AutoslalomGame", "Zmiana liczby pasów na: $newCount")
     }
 
@@ -122,6 +157,37 @@ class AutoslalomGame : ApplicationAdapter() {
         if (roadOffset < -100f) {
             roadOffset += 100f
         }
+
+        // Zarządzanie przeszkodami
+        spawnTimer += delta
+        if (spawnTimer >= config.obstacleSpawnInterval) {
+            spawnTimer = 0f
+            spawnObstacle()
+        }
+
+        val iterator = obstacles.iterator()
+        while (iterator.hasNext()) {
+            val obstacle = iterator.next()
+            obstacle.update(delta, config.gameSpeed, laneManager)
+            
+            // Kolizja
+            if (player.bounds.overlaps(obstacle.bounds)) {
+                isGameOver = true
+                Gdx.app.log("AutoslalomGame", "KOLIZJA! Naciśnij SPACJĘ, aby spróbować ponownie.")
+            }
+
+            // Usuwanie przeszkód poza ekranem
+            if (obstacle.y + obstacle.height < 0) {
+                iterator.remove()
+            }
+        }
+    }
+
+    private fun spawnObstacle() {
+        val lane = MathUtils.random(0, config.numLanes - 1)
+        val width = laneManager.laneWidth * 0.4f
+        val height = width * 1.2f
+        obstacles.add(Obstacle(lane, laneManager.screenHeight, width, height))
     }
 
     private fun draw() {
@@ -134,7 +200,6 @@ class AutoslalomGame : ApplicationAdapter() {
         for (i in 0..config.numLanes) {
             val x = i * laneManager.laneWidth
             
-            // Linie krawędziowe (ciągłe) lub oddzielające pasy (przerywane)
             if (i == 0 || i == config.numLanes) {
                 shapeRenderer.color = Color.WHITE
                 shapeRenderer.rect(x - 4, 0f, 8f, laneManager.screenHeight)
@@ -150,28 +215,38 @@ class AutoslalomGame : ApplicationAdapter() {
             }
         }
 
+        // Rysowanie przeszkód
+        shapeRenderer.color = Color.ORANGE
+        for (obstacle in obstacles) {
+            shapeRenderer.rect(
+                obstacle.bounds.x,
+                obstacle.bounds.y,
+                obstacle.bounds.width,
+                obstacle.bounds.height
+            )
+        }
+
         // Rysowanie gracza
-        shapeRenderer.color = Color.RED
-        val playerWidth = laneManager.laneWidth * 0.5f
-        val playerHeight = playerWidth * 1.6f
+        if (isGameOver) shapeRenderer.color = Color.GRAY else shapeRenderer.color = Color.RED
         shapeRenderer.rect(
-            player.visualX - playerWidth / 2,
-            80f,
-            playerWidth,
-            playerHeight
+            player.bounds.x,
+            player.bounds.y,
+            player.bounds.width,
+            player.bounds.height
         )
         
-        // "Światła" gracza dla lepszego efektu
-        shapeRenderer.color = Color.YELLOW
-        shapeRenderer.rect(player.visualX - playerWidth / 2 + 5, 80f + playerHeight - 10, 10f, 10f)
-        shapeRenderer.rect(player.visualX + playerWidth / 2 - 15, 80f + playerHeight - 10, 10f, 10f)
+        // Światła
+        if (!isGameOver) {
+            shapeRenderer.color = Color.YELLOW
+            shapeRenderer.rect(player.bounds.x + 5, player.bounds.y + player.bounds.height - 10, 10f, 10f)
+            shapeRenderer.rect(player.bounds.x + player.bounds.width - 15, player.bounds.y + player.bounds.height - 10, 10f, 10f)
+        }
 
         shapeRenderer.end()
     }
 
     override fun resize(width: Int, height: Int) {
         laneManager.updateSize(width, height)
-        // Po resize upewniamy się, że gracz jest na właściwej pozycji wizualnej
         player.visualX = laneManager.getLaneCenterX(player.targetLane)
     }
 
