@@ -28,17 +28,23 @@ class Player(var currentLane: Int, var numLanes: Int) {
     var targetLane: Int = currentLane
     var visualX: Float = 0f
     var targetX: Float = 0f
+    var rotation: Float = 0f // Kąt nachylenia auta
     val bounds = Rectangle()
 
     fun update(delta: Float, laneManager: LaneManager, config: GameConfig) {
         targetX = laneManager.getLaneCenterX(targetLane)
         
+        val prevX = visualX
         // Płynny ruch między pasami
         if (Math.abs(visualX - targetX) > 0.1f) {
             visualX = MathUtils.lerp(visualX, targetX, config.animationSpeed)
+            // Obliczamy rotację na podstawie kierunku i prędkości ruchu bocznego
+            val movement = visualX - prevX
+            rotation = MathUtils.lerp(rotation, -movement * 1.5f, 0.2f)
         } else {
             visualX = targetX
             currentLane = targetLane
+            rotation = MathUtils.lerp(rotation, 0f, 0.2f) // Prostowanie auta
         }
 
         val width = laneManager.laneWidth * 0.5f
@@ -59,6 +65,14 @@ class Player(var currentLane: Int, var numLanes: Int) {
         targetLane = newLane
         numLanes = newNumLanes
         visualX = laneManager.getLaneCenterX(currentLane)
+        rotation = 0f
+    }
+}
+
+class SkidMark(var x: Float, var y: Float, var width: Float, var alpha: Float = 0.6f) {
+    fun update(delta: Float, gameSpeed: Float) {
+        y -= gameSpeed * delta
+        alpha -= 0.5f * delta // Ślady powoli znikają
     }
 }
 
@@ -116,6 +130,7 @@ class AutoslalomGame : ApplicationAdapter() {
     private lateinit var player: Player
     
     private val obstacles = mutableListOf<Obstacle>()
+    private val skidMarks = mutableListOf<SkidMark>()
     private var spawnTimer: Float = 0f
     private var roadOffset: Float = 0f
     private var isGameOver: Boolean = false
@@ -123,6 +138,10 @@ class AutoslalomGame : ApplicationAdapter() {
     private var lastSpeedIncreaseTime: Float = 0f
     private var score: Int = 0
     private var highScore: Int = 0
+    
+    // Zmienne do trzęsienia kamerą
+    private var shakeAmount: Float = 0f
+    private var shakeDuration: Float = 0f
 
     override fun create() {
         shapeRenderer = ShapeRenderer()
@@ -159,9 +178,12 @@ class AutoslalomGame : ApplicationAdapter() {
     private fun resetGame() {
         isGameOver = false
         obstacles.clear()
+        skidMarks.clear()
         spawnTimer = 0f
         gameTime = 0f
         score = 0
+        shakeAmount = 0f
+        shakeDuration = 0f
         lastSpeedIncreaseTime = 0f
         config.gameSpeed = config.initialGameSpeed
         config.obstacleSpawnInterval = 1.0f
@@ -198,6 +220,29 @@ class AutoslalomGame : ApplicationAdapter() {
         gameTime += delta
         score += 1 // Bonus za dystans
 
+        // Trzęsienie kamerą (wygasanie)
+        if (shakeDuration > 0) {
+            shakeDuration -= delta
+            shakeAmount = MathUtils.lerp(shakeAmount, 0f, 0.1f)
+        } else {
+            shakeAmount = 0f
+        }
+
+        // Dodawanie śladów opon przy skręcie
+        if (Math.abs(player.rotation) > 5f) {
+            val offset = player.bounds.width * 0.35f
+            skidMarks.add(SkidMark(player.visualX - offset, player.bounds.y, 8f))
+            skidMarks.add(SkidMark(player.visualX + offset, player.bounds.y, 8f))
+        }
+
+        // Aktualizacja śladów opon
+        val skidIterator = skidMarks.iterator()
+        while (skidIterator.hasNext()) {
+            val mark = skidIterator.next()
+            mark.update(delta, config.gameSpeed)
+            if (mark.y < -100f || mark.alpha <= 0f) skidIterator.remove()
+        }
+
         // Progresja trudności co 5 sekund
         if (gameTime - lastSpeedIncreaseTime >= 5f && config.gameSpeed < config.maxGameSpeed) {
             config.gameSpeed = Math.min(config.gameSpeed * 1.1f, config.maxGameSpeed)
@@ -209,8 +254,8 @@ class AutoslalomGame : ApplicationAdapter() {
         
         // Animacja drogi
         roadOffset -= config.gameSpeed * delta
-        if (roadOffset < -100f) {
-            roadOffset += 100f
+        if (roadOffset < -120f) {
+            roadOffset += 120f
         }
 
         // Zarządzanie przeszkodami
@@ -228,6 +273,8 @@ class AutoslalomGame : ApplicationAdapter() {
             // Kolizja
             if (player.bounds.overlaps(obstacle.bounds)) {
                 isGameOver = true
+                shakeAmount = 30f // Siła wstrząsu
+                shakeDuration = 0.5f
                 if (score > highScore) highScore = score
                 Gdx.app.log("AutoslalomGame", "KOLIZJA! Wynik: $score. Naciśnij SPACJĘ, aby spróbować ponownie.")
             }
@@ -268,11 +315,22 @@ class AutoslalomGame : ApplicationAdapter() {
         Gdx.gl.glClearColor(0.15f, 0.15f, 0.15f, 1f)
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT)
 
+        // Aplikowanie trzęsienia do pozycji kamery
+        if (shakeDuration > 0) {
+            camera.position.set(
+                config.virtualWidth / 2f + MathUtils.random(-shakeAmount, shakeAmount),
+                config.virtualHeight / 2f + MathUtils.random(-shakeAmount, shakeAmount),
+                0f
+            )
+        } else {
+            camera.position.set(config.virtualWidth / 2f, config.virtualHeight / 2f, 0f)
+        }
+
         camera.update()
         shapeRenderer.projectionMatrix = camera.combined
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled)
 
-        // Rysowanie pasów i przerywanych linii
+        // Rysowanie pasów i przerywanych linii (z efektem prędkości)
         for (i in 0..config.numLanes) {
             val x = i * laneManager.laneWidth
             
@@ -282,13 +340,21 @@ class AutoslalomGame : ApplicationAdapter() {
             } else {
                 shapeRenderer.color = Color.GRAY
                 var y = roadOffset
+                // Linie wydłużają się wraz z prędkością
+                val dashHeight = 50f + (config.gameSpeed / config.initialGameSpeed) * 30f
                 while (y < config.virtualHeight) {
-                    if (y + 50f > 0) {
-                        shapeRenderer.rect(x - 2, y, 4f, 50f)
+                    if (y + dashHeight > 0) {
+                        shapeRenderer.rect(x - 2, y, 4f, dashHeight)
                     }
-                    y += 100f
+                    y += 120f
                 }
             }
+        }
+
+        // Rysowanie śladów opon
+        for (mark in skidMarks) {
+            shapeRenderer.color.set(0f, 0f, 0f, mark.alpha)
+            shapeRenderer.rect(mark.x - mark.width / 2, mark.y, mark.width, 30f)
         }
 
         // Rysowanie przeszkód
@@ -307,20 +373,33 @@ class AutoslalomGame : ApplicationAdapter() {
             )
         }
 
-        // Rysowanie gracza
+        // Rysowanie gracza (z rotacją)
         if (isGameOver) shapeRenderer.color = Color.GRAY else shapeRenderer.color = Color.RED
         shapeRenderer.rect(
             player.bounds.x,
             player.bounds.y,
+            player.bounds.width / 2,
+            player.bounds.height / 2,
             player.bounds.width,
-            player.bounds.height
+            player.bounds.height,
+            1f, 1f,
+            player.rotation
         )
         
-        // Światła
+        // Światła (zawsze z przodu auta, rotują razem z nim)
         if (!isGameOver) {
             shapeRenderer.color = Color.YELLOW
-            shapeRenderer.rect(player.bounds.x + 5, player.bounds.y + player.bounds.height - 10, 10f, 10f)
-            shapeRenderer.rect(player.bounds.x + player.bounds.width - 15, player.bounds.y + player.bounds.height - 10, 10f, 10f)
+            // Prosta aproksymacja świateł przy rotacji
+            val rad = player.rotation * MathUtils.degreesToRadians
+            val cos = MathUtils.cos(rad)
+            val sin = MathUtils.sin(rad)
+            
+            val lx = -player.bounds.width * 0.35f
+            val rx = player.bounds.width * 0.35f
+            val fy = player.bounds.height * 0.45f
+            
+            shapeRenderer.rect(player.visualX + lx * cos - fy * sin - 5, player.bounds.y + player.bounds.height / 2 + lx * sin + fy * cos - 5, 10f, 10f)
+            shapeRenderer.rect(player.visualX + rx * cos - fy * sin - 5, player.bounds.y + player.bounds.height / 2 + rx * sin + fy * cos - 5, 10f, 10f)
         }
 
         shapeRenderer.end()
