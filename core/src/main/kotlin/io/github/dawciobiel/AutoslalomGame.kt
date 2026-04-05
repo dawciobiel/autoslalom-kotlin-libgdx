@@ -60,12 +60,28 @@ class Player(var currentLane: Int, var numLanes: Int) {
     }
 }
 
-class Obstacle(var lane: Int, var y: Float, val width: Float, val height: Float) {
+enum class ObstacleType {
+    STANDARD, LONG, WIDE, MOVING
+}
+
+class Obstacle(
+    var lane: Int,
+    var y: Float,
+    val width: Float,
+    val height: Float,
+    val type: ObstacleType = ObstacleType.STANDARD,
+    val extraSpeed: Float = 0f
+) {
     val bounds = Rectangle()
 
-    fun update(delta: Float, gameSpeed: Float, laneManager: LaneManager) {
-        y -= gameSpeed * delta
-        val x = laneManager.getLaneCenterX(lane)
+    fun update(delta: Float, gameSpeed: Float, laneManager: LaneManager, numLanes: Int) {
+        y -= (gameSpeed + extraSpeed) * delta
+        val x = if (type == ObstacleType.WIDE) {
+            val safeLane = if (lane >= numLanes - 1) numLanes - 2 else lane
+            laneManager.getLaneCenterX(safeLane) + laneManager.laneWidth / 2f
+        } else {
+            laneManager.getLaneCenterX(lane)
+        }
         bounds.set(x - width / 2, y, width, height)
     }
 }
@@ -195,7 +211,7 @@ class AutoslalomGame : ApplicationAdapter() {
         val iterator = obstacles.iterator()
         while (iterator.hasNext()) {
             val obstacle = iterator.next()
-            obstacle.update(delta, config.gameSpeed, laneManager)
+            obstacle.update(delta, config.gameSpeed, laneManager, config.numLanes)
             
             // Kolizja
             if (player.bounds.overlaps(obstacle.bounds)) {
@@ -211,10 +227,27 @@ class AutoslalomGame : ApplicationAdapter() {
     }
 
     private fun spawnObstacle() {
+        val type = ObstacleType.values()[MathUtils.random(0, ObstacleType.values().size - 1)]
         val lane = MathUtils.random(0, config.numLanes - 1)
-        val width = laneManager.laneWidth * 0.4f
-        val height = width * 1.5f // Nieco "dłuższe" przeszkody dla lepszego wyglądu
-        obstacles.add(Obstacle(lane, config.virtualHeight, width, height))
+        val baseWidth = laneManager.laneWidth * 0.45f
+        val baseHeight = baseWidth * 1.5f
+
+        when (type) {
+            ObstacleType.STANDARD -> {
+                obstacles.add(Obstacle(lane, config.virtualHeight, baseWidth, baseHeight, type))
+            }
+            ObstacleType.LONG -> {
+                obstacles.add(Obstacle(lane, config.virtualHeight, baseWidth, baseHeight * 2.5f, type))
+            }
+            ObstacleType.WIDE -> {
+                // Zajmuje ok. 1.5 pasa, co wymaga precyzyjnego omijania
+                obstacles.add(Obstacle(lane, config.virtualHeight, laneManager.laneWidth * 1.2f, baseHeight, type))
+            }
+            ObstacleType.MOVING -> {
+                // Porusza się nieco szybciej (wolniejsze auto na drodze)
+                obstacles.add(Obstacle(lane, config.virtualHeight, baseWidth, baseHeight, type, 150f))
+            }
+        }
     }
 
     private fun draw() {
@@ -245,8 +278,13 @@ class AutoslalomGame : ApplicationAdapter() {
         }
 
         // Rysowanie przeszkód
-        shapeRenderer.color = Color.ORANGE
         for (obstacle in obstacles) {
+            shapeRenderer.color = when (obstacle.type) {
+                ObstacleType.STANDARD -> Color.ORANGE
+                ObstacleType.LONG -> Color.BROWN
+                ObstacleType.WIDE -> Color.PURPLE
+                ObstacleType.MOVING -> Color.CYAN
+            }
             shapeRenderer.rect(
                 obstacle.bounds.x,
                 obstacle.bounds.y,
