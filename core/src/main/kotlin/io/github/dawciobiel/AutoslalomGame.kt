@@ -11,9 +11,11 @@ import com.badlogic.gdx.math.Rectangle
 
 class GameConfig(
     var numLanes: Int = 5,
+    val initialGameSpeed: Float = 500f,
     var gameSpeed: Float = 500f, // Prędkość drogi (piksele na sekundę)
     var animationSpeed: Float = 0.2f, // Współczynnik lerp dla animacji zmiany pasa
-    var obstacleSpawnInterval: Float = 1.0f // Jak często pojawia się przeszkoda (sekundy)
+    var obstacleSpawnInterval: Float = 1.0f, // Jak często pojawia się przeszkoda (sekundy)
+    val maxGameSpeed: Float = 1500f
 )
 
 class Player(var currentLane: Int, var numLanes: Int) {
@@ -91,6 +93,8 @@ class AutoslalomGame : ApplicationAdapter() {
     private var spawnTimer: Float = 0f
     private var roadOffset: Float = 0f
     private var isGameOver: Boolean = false
+    private var gameTime: Float = 0f
+    private var lastSpeedIncreaseTime: Float = 0f
 
     override fun create() {
         shapeRenderer = ShapeRenderer()
@@ -121,6 +125,10 @@ class AutoslalomGame : ApplicationAdapter() {
         isGameOver = false
         obstacles.clear()
         spawnTimer = 0f
+        gameTime = 0f
+        lastSpeedIncreaseTime = 0f
+        config.gameSpeed = config.initialGameSpeed
+        config.obstacleSpawnInterval = 1.0f
         player.reset(config.numLanes / 2, config.numLanes, laneManager)
         Gdx.app.log("AutoslalomGame", "Gra zresetowana.")
     }
@@ -151,6 +159,16 @@ class AutoslalomGame : ApplicationAdapter() {
 
     private fun update(delta: Float) {
         player.update(delta, laneManager, config)
+        gameTime += delta
+
+        // Progresja trudności co 5 sekund
+        if (gameTime - lastSpeedIncreaseTime >= 5f && config.gameSpeed < config.maxGameSpeed) {
+            config.gameSpeed = Math.min(config.gameSpeed * 1.1f, config.maxGameSpeed)
+            // Skracamy interwał spawnu proporcjonalnie do prędkości, ale nie mniej niż 0.3s
+            config.obstacleSpawnInterval = Math.max(1.0f * (config.initialGameSpeed / config.gameSpeed), 0.3f)
+            lastSpeedIncreaseTime = gameTime
+            Gdx.app.log("AutoslalomGame", "Trudność wzrasta! Prędkość: ${config.gameSpeed.toInt()}")
+        }
         
         // Animacja drogi
         roadOffset -= config.gameSpeed * delta
