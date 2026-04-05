@@ -6,6 +6,8 @@ import com.badlogic.gdx.Input
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.GL20
 import com.badlogic.gdx.graphics.OrthographicCamera
+import com.badlogic.gdx.graphics.g2d.BitmapFont
+import com.badlogic.gdx.graphics.g2d.SpriteBatch
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer
 import com.badlogic.gdx.math.MathUtils
 import com.badlogic.gdx.math.Rectangle
@@ -105,6 +107,8 @@ class LaneManager(private val config: GameConfig) {
 class AutoslalomGame : ApplicationAdapter() {
 
     private lateinit var shapeRenderer: ShapeRenderer
+    private lateinit var batch: SpriteBatch
+    private lateinit var font: BitmapFont
     private lateinit var camera: OrthographicCamera
     private lateinit var viewport: FitViewport
     private lateinit var config: GameConfig
@@ -117,9 +121,15 @@ class AutoslalomGame : ApplicationAdapter() {
     private var isGameOver: Boolean = false
     private var gameTime: Float = 0f
     private var lastSpeedIncreaseTime: Float = 0f
+    private var score: Int = 0
+    private var highScore: Int = 0
 
     override fun create() {
         shapeRenderer = ShapeRenderer()
+        batch = SpriteBatch()
+        font = BitmapFont()
+        font.data.setScale(3f)
+        
         config = GameConfig(numLanes = 5)
         
         camera = OrthographicCamera()
@@ -151,6 +161,7 @@ class AutoslalomGame : ApplicationAdapter() {
         obstacles.clear()
         spawnTimer = 0f
         gameTime = 0f
+        score = 0
         lastSpeedIncreaseTime = 0f
         config.gameSpeed = config.initialGameSpeed
         config.obstacleSpawnInterval = 1.0f
@@ -185,6 +196,7 @@ class AutoslalomGame : ApplicationAdapter() {
     private fun update(delta: Float) {
         player.update(delta, laneManager, config)
         gameTime += delta
+        score += 1 // Bonus za dystans
 
         // Progresja trudności co 5 sekund
         if (gameTime - lastSpeedIncreaseTime >= 5f && config.gameSpeed < config.maxGameSpeed) {
@@ -216,12 +228,14 @@ class AutoslalomGame : ApplicationAdapter() {
             // Kolizja
             if (player.bounds.overlaps(obstacle.bounds)) {
                 isGameOver = true
-                Gdx.app.log("AutoslalomGame", "KOLIZJA! Naciśnij SPACJĘ, aby spróbować ponownie.")
+                if (score > highScore) highScore = score
+                Gdx.app.log("AutoslalomGame", "KOLIZJA! Wynik: $score. Naciśnij SPACJĘ, aby spróbować ponownie.")
             }
 
             // Usuwanie przeszkód poza ekranem
             if (obstacle.y + obstacle.height < 0) {
                 iterator.remove()
+                score += 100 // Bonus za ominięcie przeszkody
             }
         }
     }
@@ -310,6 +324,21 @@ class AutoslalomGame : ApplicationAdapter() {
         }
 
         shapeRenderer.end()
+
+        // Rysowanie tekstu (Punktacja)
+        batch.projectionMatrix = camera.combined
+        batch.begin()
+        font.color = Color.WHITE
+        font.draw(batch, "Score: $score", 20f, config.virtualHeight - 20f)
+        font.draw(batch, "Best: $highScore", 20f, config.virtualHeight - 80f)
+
+        if (isGameOver) {
+            font.color = Color.RED
+            font.draw(batch, "GAME OVER!", config.virtualWidth / 2f - 150f, config.virtualHeight / 2f + 50f)
+            font.color = Color.YELLOW
+            font.draw(batch, "PRESS SPACE TO RESTART", config.virtualWidth / 2f - 300f, config.virtualHeight / 2f - 50f)
+        }
+        batch.end()
     }
 
     override fun resize(width: Int, height: Int) {
@@ -318,5 +347,7 @@ class AutoslalomGame : ApplicationAdapter() {
 
     override fun dispose() {
         shapeRenderer.dispose()
+        batch.dispose()
+        font.dispose()
     }
 }
