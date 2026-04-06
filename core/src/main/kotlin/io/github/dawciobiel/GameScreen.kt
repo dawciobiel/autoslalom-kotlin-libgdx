@@ -36,12 +36,12 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
     private var shakeAmount: Float = 0f
     private var shakeDuration: Float = 0f
 
-    private val prefs = Gdx.app.getPreferences("AutoslalomPrefs")
+    private val highscoreManager = HighscoreManager()
 
     init {
         camera.position.set(config.virtualWidth / 2f, config.virtualHeight / 2f, 0f)
         player.visualX = laneManager.getLaneCenterX(player.currentLane)
-        highScore = prefs.getInteger("highScore", 0)
+        highScore = highscoreManager.loadScores().firstOrNull()?.score ?: 0
     }
 
     override fun show() {
@@ -160,11 +160,8 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
                 isGameOver = true
                 shakeAmount = 30f
                 shakeDuration = 0.5f
-                if (score > highScore) {
-                    highScore = score
-                    prefs.putInteger("highScore", highScore)
-                    prefs.flush()
-                }
+                highscoreManager.saveScore("Player", score)
+                highScore = highscoreManager.loadScores().firstOrNull()?.score ?: score
             }
 
             if (obstacle.y + obstacle.height < 0) {
@@ -290,10 +287,19 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
 
         if (isGameOver) {
             font.color = Color.RED
-            font.draw(batch, "GAME OVER!", config.virtualWidth / 2f - 150f, config.virtualHeight / 2f + 50f)
+            font.draw(batch, "GAME OVER!", config.virtualWidth / 2f - 150f, config.virtualHeight / 2f + 300f)
+            
+            font.color = Color.WHITE
+            font.data.setScale(2f)
+            val topScores = highscoreManager.loadScores()
+            topScores.forEachIndexed { index, entry ->
+                font.draw(batch, "${index + 1}. ${entry.name}: ${entry.score}", config.virtualWidth / 2f - 150f, config.virtualHeight / 2f + 220f - index * 40f)
+            }
+            font.data.setScale(3f)
+
             font.color = Color.YELLOW
-            font.draw(batch, "PRESS SPACE TO RESTART", config.virtualWidth / 2f - 300f, config.virtualHeight / 2f - 50f)
-            font.draw(batch, "PRESS ESC FOR MENU", config.virtualWidth / 2f - 250f, config.virtualHeight / 2f - 150f)
+            font.draw(batch, "PRESS SPACE TO RESTART", config.virtualWidth / 2f - 300f, config.virtualHeight / 2f - 300f)
+            font.draw(batch, "PRESS ESC FOR MENU", config.virtualWidth / 2f - 250f, config.virtualHeight / 2f - 400f)
         }
         batch.end()
     }
