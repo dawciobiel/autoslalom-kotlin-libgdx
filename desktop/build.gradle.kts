@@ -31,7 +31,7 @@ tasks.named<JavaExec>("run") {
     workingDir = rootProject.file("assets")
 
     // Ustawienie środowiska dla ALSA / minimal log dla OpenAL
-    environment("ALSA_CARD", "default")
-    environment("ALSOFT_DRIVERS", "alsa,pulse")
-    environment("ALSOFT_LOGLEVEL", "1")
+//    environment("ALSA_CARD", "default")
+//    environment("ALSOFT_DRIVERS", "alsa,pulse")
+//    environment("ALSOFT_LOGLEVEL", "1")
 }

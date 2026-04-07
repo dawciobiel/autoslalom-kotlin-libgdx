@@ -39,17 +39,27 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
 
     private val highscoreManager = HighscoreManager()
     private var playerTexture: Texture? = null
+    private val audio = game.audioManager
 
     init {
         camera.position.set(config.virtualWidth / 2f, config.virtualHeight / 2f, 0f)
         player.visualX = laneManager.getLaneCenterX(player.currentLane)
         highScore = highscoreManager.loadScores().firstOrNull()?.score ?: 0
         
+        loadAssets()
+    }
+
+    private fun loadAssets() {
         try {
             playerTexture = Texture(Gdx.files.internal(player.type.texturePath))
         } catch (e: Exception) {
             Gdx.app.error("GameScreen", "Could not load player texture: ${player.type.texturePath}")
         }
+        
+        audio.loadSound("crash", "audio/sfx/crash.wav")
+        audio.loadSound("skid", "audio/sfx/skid.wav")
+        audio.loadSound("engine", "audio/sfx/engine.wav")
+        audio.loadSound("select", "audio/sfx/select.wav")
     }
 
     override fun show() {
@@ -113,6 +123,7 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
         val types = VehicleType.values()
         val nextType = types[(player.type.ordinal + 1) % types.size]
         player.changeType(nextType)
+        audio.playSound("select")
         
         playerTexture?.dispose()
         try {
@@ -157,6 +168,10 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
             val offset = player.bounds.width * 0.35f
             skidMarks.add(SkidMark(player.visualX - offset, player.bounds.y, 8f))
             skidMarks.add(SkidMark(player.visualX + offset, player.bounds.y, 8f))
+            
+            if ((gameTime * 10).toInt() % 5 == 0) {
+                audio.playSound("skid", 0.8f + Math.abs(player.rotation) / 20f)
+            }
         }
 
         if (gameTime - lastSpeedIncreaseTime >= 5f && config.gameSpeed < config.maxGameSpeed) {
@@ -186,6 +201,7 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
                     player.takeDamage(20)
                     shakeAmount = 30f
                     shakeDuration = 0.5f
+                    audio.playSound("crash")
                     
                     if (player.health <= 0) {
                         isGameOver = true
