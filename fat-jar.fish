@@ -9,4 +9,4 @@ echo "  FAT JAR CREATING...  "
 set_color normal
 echo ""
 
-./gradlew desktop:shadowJar
+./gradlew clear desktop:shadowJar
