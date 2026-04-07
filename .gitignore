@@ -43,4 +43,4 @@ bin/
 .DS_Store
 
 ### Autoslalom data ###
-data/
+highscores.json
