@@ -9,4 +9,5 @@ echo "  RUNNING...  "
 set_color normal
 echo ""
 
-../gradlew $1 desktop:run
+cd (dirname (status -f))/..
+./gradlew $1 desktop:run

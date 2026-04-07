@@ -1,5 +1,6 @@
 plugins {
     application
+    id("com.gradleup.shadow")
 }
 
 val gdxVersion: String by project
@@ -16,10 +17,21 @@ dependencies {
 }
 
 application {
-    mainClass = "io.github.dawciobiel.DesktopLauncherKt"
+    mainClass.set("io.github.dawciobiel.DesktopLauncherKt")
+}
+
+tasks.shadowJar {
+    archiveFileName.set("autoslalom.jar")
+    from(rootProject.file("assets"))
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
 // Wskazanie folderu assets jako katalogu roboczego
-tasks.run.configure {
+tasks.named<JavaExec>("run") {
     workingDir = rootProject.file("assets")
+
+    // Ustawienie środowiska dla ALSA / minimal log dla OpenAL
+    environment("ALSA_CARD", "default")
+    environment("ALSOFT_DRIVERS", "alsa,pulse")
+    environment("ALSOFT_LOGLEVEL", "1")
 }

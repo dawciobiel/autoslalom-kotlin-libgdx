@@ -1,5 +1,6 @@
 plugins {
     kotlin("jvm") version "2.3.20" apply false
+    id("com.gradleup.shadow") version "9.4.1" apply false
 }
 
 val javaVersion: String by project

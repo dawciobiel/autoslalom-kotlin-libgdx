@@ -9,4 +9,5 @@ echo "  BUILDING...  "
 set_color normal
 echo ""
 
-../gradlew $1 desktop:build
+cd (dirname (status -f))/..
+./gradlew $1 desktop:build
