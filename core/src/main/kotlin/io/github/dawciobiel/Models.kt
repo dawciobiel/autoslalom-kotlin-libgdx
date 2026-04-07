@@ -14,49 +14,6 @@ class GameConfig(
     val virtualHeight: Float = 1500f
 )
 
-class Player(var currentLane: Int, var numLanes: Int) {
-    var targetLane: Int = currentLane
-    var visualX: Float = 0f
-    var targetX: Float = 0f
-    var rotation: Float = 0f
-    val bounds = Rectangle()
-
-    fun update(delta: Float, laneManager: LaneManager, config: GameConfig) {
-        targetX = laneManager.getLaneCenterX(targetLane)
-        
-        val prevX = visualX
-        if (Math.abs(visualX - targetX) > 0.1f) {
-            visualX = MathUtils.lerp(visualX, targetX, config.animationSpeed)
-            val movement = visualX - prevX
-            rotation = MathUtils.lerp(rotation, -movement * 1.5f, 0.2f)
-        } else {
-            visualX = targetX
-            currentLane = targetLane
-            rotation = MathUtils.lerp(rotation, 0f, 0.2f)
-        }
-
-        val width = laneManager.laneWidth * 0.5f
-        val height = width * 1.6f
-        bounds.set(visualX - width / 2, 80f, width, height)
-    }
-
-    fun moveLeft() {
-        if (targetLane > 0) targetLane--
-    }
-
-    fun moveRight() {
-        if (targetLane < numLanes - 1) targetLane++
-    }
-
-    fun reset(newLane: Int, newNumLanes: Int, laneManager: LaneManager) {
-        currentLane = newLane
-        targetLane = newLane
-        numLanes = newNumLanes
-        visualX = laneManager.getLaneCenterX(currentLane)
-        rotation = 0f
-    }
-}
-
 class SkidMark(var x: Float, var y: Float, var width: Float, var alpha: Float = 0.6f) {
     fun update(delta: Float, gameSpeed: Float) {
         y -= gameSpeed * delta
