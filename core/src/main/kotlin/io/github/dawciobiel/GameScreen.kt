@@ -6,6 +6,7 @@ import com.badlogic.gdx.ScreenAdapter
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.GL20
 import com.badlogic.gdx.graphics.OrthographicCamera
+import com.badlogic.gdx.graphics.Texture
 import com.badlogic.gdx.graphics.g2d.BitmapFont
 import com.badlogic.gdx.graphics.g2d.SpriteBatch
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer
@@ -21,7 +22,7 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
     private val camera = OrthographicCamera()
     private val viewport = FitViewport(config.virtualWidth, config.virtualHeight, camera)
     private val laneManager = LaneManager(config)
-    private val player = Player(config.numLanes / 2, config.numLanes)
+    private val player = PlayerVehicle(config.numLanes / 2, config.numLanes)
     
     private val obstacles = mutableListOf<Obstacle>()
     private val skidMarks = mutableListOf<SkidMark>()
@@ -37,11 +38,18 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
     private var shakeDuration: Float = 0f
 
     private val highscoreManager = HighscoreManager()
+    private var playerTexture: Texture? = null
 
     init {
         camera.position.set(config.virtualWidth / 2f, config.virtualHeight / 2f, 0f)
         player.visualX = laneManager.getLaneCenterX(player.currentLane)
         highScore = highscoreManager.loadScores().firstOrNull()?.score ?: 0
+        
+        try {
+            playerTexture = Texture(Gdx.files.internal(player.type.texturePath))
+        } catch (e: Exception) {
+            Gdx.app.error("GameScreen", "Could not load player texture: ${player.type.texturePath}")
+        }
     }
 
     override fun show() {
@@ -87,6 +95,9 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
         if (Gdx.input.isKeyJustPressed(Input.Keys.RIGHT) || Gdx.input.isKeyJustPressed(Input.Keys.D)) {
             player.moveRight()
         }
+        if (Gdx.input.isKeyJustPressed(Input.Keys.T)) {
+            cycleVehicleType()
+        }
         if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
             game.setScreen(MenuScreen(game))
         }
@@ -95,6 +106,20 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
             if (Gdx.input.isKeyJustPressed(Input.Keys.NUM_0 + i)) {
                 changeLaneCount(i)
             }
+        }
+    }
+
+    private fun cycleVehicleType() {
+        val types = VehicleType.values()
+        val nextType = types[(player.type.ordinal + 1) % types.size]
+        player.changeType(nextType)
+        
+        playerTexture?.dispose()
+        try {
+            playerTexture = Texture(Gdx.files.internal(player.type.texturePath))
+        } catch (e: Exception) {
+            Gdx.app.error("GameScreen", "Could not load player texture: ${player.type.texturePath}")
+            playerTexture = null
         }
     }
 
@@ -157,11 +182,19 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
             obstacle.update(delta, config.gameSpeed, laneManager, config.numLanes)
             
             if (player.bounds.overlaps(obstacle.bounds)) {
-                isGameOver = true
-                shakeAmount = 30f
-                shakeDuration = 0.5f
-                highscoreManager.saveScore("Player", score)
-                highScore = highscoreManager.loadScores().firstOrNull()?.score ?: score
+                if (!player.isInvulnerable) {
+                    player.takeDamage(20)
+                    shakeAmount = 30f
+                    shakeDuration = 0.5f
+                    
+                    if (player.health <= 0) {
+                        isGameOver = true
+                        highscoreManager.saveScore("Player", score)
+                        highScore = highscoreManager.loadScores().firstOrNull()?.score ?: score
+                    }
+                    iterator.remove()
+                    continue
+                }
             }
 
             if (obstacle.y + obstacle.height < 0) {
@@ -251,39 +284,58 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
             )
         }
 
-        if (isGameOver) shapeRenderer.color = Color.GRAY else shapeRenderer.color = Color.RED
-        shapeRenderer.rect(
-            player.bounds.x,
-            player.bounds.y,
-            player.bounds.width / 2,
-            player.bounds.height / 2,
-            player.bounds.width,
-            player.bounds.height,
-            1f, 1f,
-            player.rotation
-        )
-        
-        if (!isGameOver) {
-            shapeRenderer.color = Color.YELLOW
-            val rad = player.rotation * MathUtils.degreesToRadians
-            val cos = MathUtils.cos(rad)
-            val sin = MathUtils.sin(rad)
-            
-            val lx = -player.bounds.width * 0.35f
-            val rx = player.bounds.width * 0.35f
-            val fy = player.bounds.height * 0.45f
-            
-            shapeRenderer.rect(player.visualX + lx * cos - fy * sin - 5, player.bounds.y + player.bounds.height / 2 + lx * sin + fy * cos - 5, 10f, 10f)
-            shapeRenderer.rect(player.visualX + rx * cos - fy * sin - 5, player.bounds.y + player.bounds.height / 2 + rx * sin + fy * cos - 5, 10f, 10f)
-        }
-
         shapeRenderer.end()
+
+        if (playerTexture == null) {
+            shapeRenderer.begin(ShapeRenderer.ShapeType.Filled)
+            if (isGameOver) shapeRenderer.color = Color.GRAY else shapeRenderer.color = Color.RED
+            shapeRenderer.rect(
+                player.bounds.x,
+                player.bounds.y,
+                player.bounds.width / 2,
+                player.bounds.height / 2,
+                player.bounds.width,
+                player.bounds.height,
+                1f, 1f,
+                player.rotation
+            )
+            shapeRenderer.end()
+        }
 
         batch.projectionMatrix = camera.combined
         batch.begin()
+        
+        playerTexture?.let {
+            val isVisible = !player.isInvulnerable || (gameTime * 10).toInt() % 2 == 0
+            if (isVisible) {
+                // Determine drawing dimensions based on rotation offset to prevent squashing
+                val isRotated = (player.type.rotationOffset / 90f).toInt() % 2 != 0
+                val drawW = if (isRotated) player.bounds.height else player.bounds.width
+                val drawH = if (isRotated) player.bounds.width else player.bounds.height
+                
+                batch.draw(
+                    it,
+                    player.visualX - drawW / 2,
+                    player.bounds.y + player.bounds.height / 2 - drawH / 2,
+                    drawW / 2,
+                    drawH / 2,
+                    drawW,
+                    drawH,
+                    1f, 1f,
+                    player.rotation + player.type.rotationOffset,
+                    0, 0,
+                    it.width,
+                    it.height,
+                    false, false
+                )
+            }
+        }
+        
         font.color = Color.WHITE
         font.draw(batch, "Score: $score", 20f, config.virtualHeight - 20f)
         font.draw(batch, "Best: $highScore", 20f, config.virtualHeight - 80f)
+        font.draw(batch, "Vehicle: ${player.type.name}", 20f, config.virtualHeight - 140f)
+        font.draw(batch, "Health: ${player.health}%", 20f, config.virtualHeight - 200f)
 
         if (isGameOver) {
             font.color = Color.RED
@@ -312,5 +364,6 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
         shapeRenderer.dispose()
         batch.dispose()
         font.dispose()
+        playerTexture?.dispose()
     }
 }
