@@ -9,4 +9,4 @@ echo "  RUNNING...  "
 set_color normal
 echo ""
 
-./gradlew $1 desktop:run
+../gradlew $1 desktop:run

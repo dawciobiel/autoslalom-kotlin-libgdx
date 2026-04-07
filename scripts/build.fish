@@ -9,4 +9,4 @@ echo "  BUILDING...  "
 set_color normal
 echo ""
 
-./gradlew $1 desktop:build
+../gradlew $1 desktop:build
