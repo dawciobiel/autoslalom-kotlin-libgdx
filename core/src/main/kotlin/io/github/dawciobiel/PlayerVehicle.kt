@@ -25,6 +25,12 @@ class PlayerVehicle(var currentLane: Int, var numLanes: Int) {
     var rotation: Float = 0f
     val bounds = Rectangle()
     
+    // Procedural animation properties
+    var bounceY: Float = 0f
+    var scaleX: Float = 1f
+    var scaleY: Float = 1f
+    private var stateTime: Float = 0f
+    
     // Additional properties for future use
     var currentSpeed: Float = 0f
     var health: Int = 100
@@ -32,6 +38,7 @@ class PlayerVehicle(var currentLane: Int, var numLanes: Int) {
     var invulnerabilityTimer: Float = 0f
 
     fun update(delta: Float, laneManager: LaneManager, config: GameConfig) {
+        stateTime += delta
         targetX = laneManager.getLaneCenterX(targetLane)
         
         val prevX = visualX
@@ -40,12 +47,27 @@ class PlayerVehicle(var currentLane: Int, var numLanes: Int) {
         if (Math.abs(visualX - targetX) > 0.1f) {
             visualX = MathUtils.lerp(visualX, targetX, animSpeed)
             val movement = visualX - prevX
+            
+            // Tilting based on movement
             rotation = MathUtils.lerp(rotation, -movement * 1.5f, 0.2f)
+            
+            // Squash and stretch during lane change
+            scaleX = MathUtils.lerp(scaleX, 0.9f, 0.1f)
+            scaleY = MathUtils.lerp(scaleY, 1.1f, 0.1f)
         } else {
             visualX = targetX
             currentLane = targetLane
             rotation = MathUtils.lerp(rotation, 0f, 0.2f)
+            
+            // Return to normal scale
+            scaleX = MathUtils.lerp(scaleX, 1f, 0.1f)
+            scaleY = MathUtils.lerp(scaleY, 1f, 0.1f)
         }
+
+        // Bouncing effect based on game speed
+        val bounceFreq = 10f * (config.gameSpeed / config.initialGameSpeed)
+        val bounceAmp = 2f * (config.gameSpeed / config.initialGameSpeed)
+        bounceY = MathUtils.sin(stateTime * bounceFreq) * bounceAmp
 
         val width = laneManager.laneWidth * 0.5f
         val height = width * type.aspectRatio
@@ -60,11 +82,21 @@ class PlayerVehicle(var currentLane: Int, var numLanes: Int) {
     }
 
     fun moveLeft() {
-        if (targetLane > 0) targetLane--
+        if (targetLane > 0) {
+            targetLane--
+            // Initial squash on command
+            scaleX = 0.8f
+            scaleY = 1.2f
+        }
     }
 
     fun moveRight() {
-        if (targetLane < numLanes - 1) targetLane++
+        if (targetLane < numLanes - 1) {
+            targetLane++
+            // Initial squash on command
+            scaleX = 0.8f
+            scaleY = 1.2f
+        }
     }
 
     fun reset(newLane: Int, newNumLanes: Int, laneManager: LaneManager) {
@@ -73,6 +105,10 @@ class PlayerVehicle(var currentLane: Int, var numLanes: Int) {
         numLanes = newNumLanes
         visualX = laneManager.getLaneCenterX(currentLane)
         rotation = 0f
+        bounceY = 0f
+        scaleX = 1f
+        scaleY = 1f
+        stateTime = 0f
         health = 100
         isInvulnerable = false
         invulnerabilityTimer = 0f

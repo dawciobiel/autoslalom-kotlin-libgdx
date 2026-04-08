@@ -5,6 +5,7 @@ import com.badlogic.gdx.Gdx
 
 class AutoslalomGame : Game() {
     val audioManager = AudioManager()
+    val supabaseHighscoreManager = SupabaseHighscoreManager()
 
     override fun create() {
         Gdx.app.log("AutoslalomGame", "Gra uruchomiona.")

@@ -34,9 +34,29 @@ class Obstacle(
     val extraSpeed: Float = 0f
 ) {
     val bounds = Rectangle()
+    var stateTime: Float = MathUtils.random(0f, 10f)
+    var scaleX: Float = 1f
+    var scaleY: Float = 1f
 
     fun update(delta: Float, gameSpeed: Float, laneManager: LaneManager, numLanes: Int) {
+        stateTime += delta
         y -= (gameSpeed + extraSpeed) * delta
+        
+        // Procedural animation based on type
+        when (type) {
+            ObstacleType.MOVING -> {
+                scaleX = 1f + MathUtils.sin(stateTime * 8f) * 0.1f
+                scaleY = 1f + MathUtils.cos(stateTime * 8f) * 0.1f
+            }
+            ObstacleType.WIDE -> {
+                scaleY = 1f + MathUtils.sin(stateTime * 4f) * 0.05f
+            }
+            else -> {
+                scaleX = 1f + MathUtils.sin(stateTime * 2f) * 0.02f
+                scaleY = 1f + MathUtils.cos(stateTime * 2f) * 0.02f
+            }
+        }
+
         val x = if (type == ObstacleType.WIDE) {
             val safeLane = if (lane >= numLanes - 1) numLanes - 2 else lane
             laneManager.getLaneCenterX(safeLane) + laneManager.laneWidth / 2f

@@ -19,6 +19,7 @@ class AudioManager : Disposable {
             sounds[name] = Gdx.audio.newSound(Gdx.files.internal(path))
         } catch (e: Exception) {
             Gdx.app.error("AudioManager", "Could not load sound: $path")
+            System.err.println(e.message);
         }
     }
 

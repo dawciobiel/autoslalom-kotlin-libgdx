@@ -1,7 +1,7 @@
 # TODO List
 
-1. Results recording system (open-source Supabase or Firebase/Firestore).
-2. Add object animation.
+1. [DONE] System zapisu wyników (Supabase).
+2. [DONE] Dodanie animacji obiektów.
 
 
 - - -

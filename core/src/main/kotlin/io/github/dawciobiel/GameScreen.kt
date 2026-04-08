@@ -38,6 +38,8 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
     private var shakeDuration: Float = 0f
 
     private val highscoreManager = HighscoreManager()
+    private val remoteScores = mutableListOf<RemoteScoreResponse>()
+    private var isUploading: Boolean = false
     private var playerTexture: Texture? = null
     private val audio = game.audioManager
 
@@ -87,6 +89,7 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
         isGameOver = false
         obstacles.clear()
         skidMarks.clear()
+        remoteScores.clear()
         spawnTimer = 0f
         gameTime = 0f
         score = 0
@@ -203,10 +206,35 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
                     shakeDuration = 0.5f
                     audio.playSound("crash")
                     
+                    // Impact squash effect
+                    player.scaleX = 1.5f
+                    player.scaleY = 0.5f
+                    
                     if (player.health <= 0) {
                         isGameOver = true
-                        highscoreManager.saveScore("Player", score)
+                        val playerName = System.getProperty("user.name") ?: "Player"
+                        
+                        // Save local
+                        highscoreManager.saveScore(playerName, score)
                         highScore = highscoreManager.loadScores().firstOrNull()?.score ?: score
+                        
+                        // Save remote to Supabase
+                        isUploading = true
+                        game.supabaseHighscoreManager.saveScore(playerName, score) { success ->
+                            isUploading = false
+                            // After saving, fetch top 10 to update the list
+                            game.supabaseHighscoreManager.fetchTopScores(10) { scores ->
+                                remoteScores.clear()
+                                remoteScores.addAll(scores)
+                            }
+                        }
+                        
+                        // Initial fetch even if save is in progress
+                        game.supabaseHighscoreManager.fetchTopScores(10) { scores ->
+                            if (remoteScores.isEmpty()) {
+                                remoteScores.addAll(scores)
+                            }
+                        }
                     }
                     iterator.remove()
                     continue
@@ -286,6 +314,20 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
         }
 
         for (obstacle in obstacles) {
+            // Shadow
+            shapeRenderer.color.set(0f, 0f, 0f, 0.3f)
+            shapeRenderer.rect(
+                obstacle.bounds.x + 10f,
+                obstacle.bounds.y - 10f,
+                obstacle.bounds.width / 2f,
+                obstacle.bounds.height / 2f,
+                obstacle.bounds.width,
+                obstacle.bounds.height,
+                obstacle.scaleX, obstacle.scaleY,
+                0f
+            )
+
+            // Main shape
             shapeRenderer.color = when (obstacle.type) {
                 ObstacleType.STANDARD -> Color.ORANGE
                 ObstacleType.LONG -> Color.BROWN
@@ -295,8 +337,12 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
             shapeRenderer.rect(
                 obstacle.bounds.x,
                 obstacle.bounds.y,
+                obstacle.bounds.width / 2f,
+                obstacle.bounds.height / 2f,
                 obstacle.bounds.width,
-                obstacle.bounds.height
+                obstacle.bounds.height,
+                obstacle.scaleX, obstacle.scaleY,
+                0f
             )
         }
 
@@ -307,12 +353,12 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
             if (isGameOver) shapeRenderer.color = Color.GRAY else shapeRenderer.color = Color.RED
             shapeRenderer.rect(
                 player.bounds.x,
-                player.bounds.y,
+                player.bounds.y + player.bounceY,
                 player.bounds.width / 2,
                 player.bounds.height / 2,
                 player.bounds.width,
                 player.bounds.height,
-                1f, 1f,
+                player.scaleX, player.scaleY,
                 player.rotation
             )
             shapeRenderer.end()
@@ -329,15 +375,35 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
                 val drawW = if (isRotated) player.bounds.height else player.bounds.width
                 val drawH = if (isRotated) player.bounds.width else player.bounds.height
                 
+                // Shadow
+                batch.setColor(0f, 0f, 0f, 0.4f)
                 batch.draw(
                     it,
-                    player.visualX - drawW / 2,
-                    player.bounds.y + player.bounds.height / 2 - drawH / 2,
+                    player.visualX - drawW / 2 + 15f,
+                    player.bounds.y + player.bounds.height / 2 - drawH / 2 + player.bounceY - 15f,
                     drawW / 2,
                     drawH / 2,
                     drawW,
                     drawH,
-                    1f, 1f,
+                    player.scaleX, player.scaleY,
+                    player.rotation + player.type.rotationOffset,
+                    0, 0,
+                    it.width,
+                    it.height,
+                    false, false
+                )
+
+                // Main sprite
+                batch.setColor(1f, 1f, 1f, 1f)
+                batch.draw(
+                    it,
+                    player.visualX - drawW / 2,
+                    player.bounds.y + player.bounds.height / 2 - drawH / 2 + player.bounceY,
+                    drawW / 2,
+                    drawH / 2,
+                    drawW,
+                    drawH,
+                    player.scaleX, player.scaleY,
                     player.rotation + player.type.rotationOffset,
                     0, 0,
                     it.width,
@@ -355,16 +421,34 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
 
         if (isGameOver) {
             font.color = Color.RED
-            font.draw(batch, "GAME OVER!", config.virtualWidth / 2f - 150f, config.virtualHeight / 2f + 300f)
+            font.draw(batch, "GAME OVER!", config.virtualWidth / 2f - 150f, config.virtualHeight / 2f + 400f)
             
             font.color = Color.WHITE
-            font.data.setScale(2f)
-            val topScores = highscoreManager.loadScores()
-            topScores.forEachIndexed { index, entry ->
-                font.draw(batch, "${index + 1}. ${entry.name}: ${entry.score}", config.virtualWidth / 2f - 150f, config.virtualHeight / 2f + 220f - index * 40f)
+            font.data.setScale(1.5f)
+            
+            // Local Scores
+            font.draw(batch, "--- LOCAL TOP 5 ---", config.virtualWidth / 2f - 350f, config.virtualHeight / 2f + 320f)
+            val localTop = highscoreManager.loadScores().take(5)
+            localTop.forEachIndexed { index, entry ->
+                font.draw(batch, "${index + 1}. ${entry.name}: ${entry.score}", config.virtualWidth / 2f - 350f, config.virtualHeight / 2f + 280f - index * 35f)
             }
-            font.data.setScale(3f)
 
+            // Global Scores
+            font.draw(batch, "--- GLOBAL TOP 5 ---", config.virtualWidth / 2f + 50f, config.virtualHeight / 2f + 320f)
+            if (remoteScores.isEmpty()) {
+                font.draw(batch, "Loading...", config.virtualWidth / 2f + 50f, config.virtualHeight / 2f + 280f)
+            } else {
+                remoteScores.take(5).forEachIndexed { index, entry ->
+                    font.draw(batch, "${index + 1}. ${entry.player_name}: ${entry.score}", config.virtualWidth / 2f + 50f, config.virtualHeight / 2f + 280f - index * 35f)
+                }
+            }
+
+            if (isUploading) {
+                font.color = Color.CYAN
+                font.draw(batch, "Uploading your score...", config.virtualWidth / 2f - 150f, config.virtualHeight / 2f + 360f)
+            }
+
+            font.data.setScale(3f)
             font.color = Color.YELLOW
             font.draw(batch, "PRESS SPACE TO RESTART", config.virtualWidth / 2f - 300f, config.virtualHeight / 2f - 300f)
             font.draw(batch, "PRESS ESC FOR MENU", config.virtualWidth / 2f - 250f, config.virtualHeight / 2f - 400f)
