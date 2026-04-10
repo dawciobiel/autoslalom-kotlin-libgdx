@@ -6,12 +6,14 @@ import com.badlogic.gdx.ScreenAdapter
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.GL20
 import com.badlogic.gdx.graphics.OrthographicCamera
-import com.badlogic.gdx.graphics.Texture
 import com.badlogic.gdx.graphics.g2d.BitmapFont
 import com.badlogic.gdx.graphics.g2d.SpriteBatch
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer
 import com.badlogic.gdx.math.MathUtils
 import com.badlogic.gdx.utils.viewport.FitViewport
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
 
@@ -22,7 +24,7 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
     private val camera = OrthographicCamera()
     private val viewport = FitViewport(config.virtualWidth, config.virtualHeight, camera)
     private val laneManager = LaneManager(config)
-    private val player = PlayerVehicle(config.numLanes / 2, config.numLanes)
+    private val player = PlayerVehicle(config.numLanes / 2, config.numLanes, laneManager, config)
     
     private val obstacles = mutableListOf<Obstacle>()
     private val skidMarks = mutableListOf<SkidMark>()
@@ -40,24 +42,24 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
     private val highscoreManager = HighscoreManager()
     private val remoteScores = mutableListOf<RemoteScoreResponse>()
     private var isUploading: Boolean = false
-    private var playerTexture: Texture? = null
     private val audio = game.audioManager
+    
+    private var currentWeaponIndex: Int = 0
+    private val availableWeapons = listOf(WeaponType.NONE, WeaponType.PISTOL, WeaponType.RIFLE, WeaponType.SWORD)
+
 
     init {
         camera.position.set(config.virtualWidth / 2f, config.virtualHeight / 2f, 0f)
         player.visualX = laneManager.getLaneCenterX(player.currentLane)
         highScore = highscoreManager.loadScores().firstOrNull()?.score ?: 0
         
+        player.changeType(player.type)
+        setPlayerWeapon(availableWeapons[currentWeaponIndex])
+
         loadAssets()
     }
 
     private fun loadAssets() {
-        try {
-            playerTexture = Texture(Gdx.files.internal(player.type.texturePath))
-        } catch (e: Exception) {
-            Gdx.app.error("GameScreen", "Could not load player texture: ${player.type.texturePath}")
-        }
-        
         audio.loadSound("crash", "audio/sfx/crash.wav")
         audio.loadSound("skid", "audio/sfx/skid.wav")
         audio.loadSound("engine", "audio/sfx/engine.wav")
@@ -98,7 +100,10 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
         lastSpeedIncreaseTime = 0f
         config.gameSpeed = config.initialGameSpeed
         config.obstacleSpawnInterval = 1.0f
-        player.reset(config.numLanes / 2, config.numLanes, laneManager)
+        player.reset(config.numLanes / 2, config.numLanes, laneManager, config)
+        
+        player.changeType(player.type)
+        setPlayerWeapon(availableWeapons[currentWeaponIndex])
     }
 
     private fun handleInput() {
@@ -110,6 +115,9 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
         }
         if (Gdx.input.isKeyJustPressed(Input.Keys.T)) {
             cycleVehicleType()
+        }
+        if (Gdx.input.isKeyJustPressed(Input.Keys.W)) {
+            cycleWeapon()
         }
         if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
             game.setScreen(MenuScreen(game))
@@ -123,25 +131,47 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
     }
 
     private fun cycleVehicleType() {
-        val types = VehicleType.values()
-        val nextType = types[(player.type.ordinal + 1) % types.size]
+        val types = VehicleType.entries
+        val nextTypeIndex = (player.type.ordinal + 1) % types.size
+        val nextType = types[nextTypeIndex]
         player.changeType(nextType)
         audio.playSound("select")
         
-        playerTexture?.dispose()
-        try {
-            playerTexture = Texture(Gdx.files.internal(player.type.texturePath))
-        } catch (e: Exception) {
-            Gdx.app.error("GameScreen", "Could not load player texture: ${player.type.texturePath}")
-            playerTexture = null
+        setPlayerWeapon(availableWeapons[currentWeaponIndex])
+    }
+    
+    private fun cycleWeapon() {
+        currentWeaponIndex = (currentWeaponIndex + 1) % availableWeapons.size
+        setPlayerWeapon(availableWeapons[currentWeaponIndex])
+        audio.playSound("select")
+    }
+    
+    private fun setPlayerWeapon(weaponType: WeaponType) {
+        val newWeapon = Weapon(weaponType)
+        when (weaponType) {
+            WeaponType.PISTOL -> {
+                newWeapon.relativeY = -player.bounds.height * 0.2f
+                newWeapon.relativeX = player.bounds.width * 0.4f
+            }
+            WeaponType.RIFLE -> {
+                newWeapon.relativeY = -player.bounds.height * 0.1f
+                newWeapon.relativeX = player.bounds.width * 0.5f
+            }
+            WeaponType.SWORD -> {
+                newWeapon.relativeY = -player.bounds.height * 0.3f
+                newWeapon.relativeX = player.bounds.width * 0.3f
+            }
+            WeaponType.NONE -> {}
         }
+        player.weapon = newWeapon
     }
 
     private fun changeLaneCount(newCount: Int) {
         config.numLanes = newCount
         laneManager.updateLaneWidth()
-        player.reset(newCount / 2, newCount, laneManager)
+        player.reset(newCount / 2, newCount, laneManager, config)
         obstacles.clear()
+        setPlayerWeapon(availableWeapons[currentWeaponIndex]) 
     }
 
     private fun updateVisualEffects(delta: Float) {
@@ -163,23 +193,23 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
     }
 
     private fun update(delta: Float) {
-        player.update(delta, laneManager, config)
+        player.update(delta)
         gameTime += delta
         score += 1
 
-        if (Math.abs(player.rotation) > 5f) {
+        if (abs(player.rotation) > 5f || abs(player.scaleX - 1f) > 0.1f || abs(player.scaleY - 1f) > 0.1f) {
             val offset = player.bounds.width * 0.35f
             skidMarks.add(SkidMark(player.visualX - offset, player.bounds.y, 8f))
             skidMarks.add(SkidMark(player.visualX + offset, player.bounds.y, 8f))
             
             if ((gameTime * 10).toInt() % 5 == 0) {
-                audio.playSound("skid", 0.8f + Math.abs(player.rotation) / 20f)
+                audio.playSound("skid", 0.8f + abs(player.rotation) / 20f)
             }
         }
 
         if (gameTime - lastSpeedIncreaseTime >= 5f && config.gameSpeed < config.maxGameSpeed) {
-            config.gameSpeed = Math.min(config.gameSpeed * 1.1f, config.maxGameSpeed)
-            config.obstacleSpawnInterval = Math.max(1.0f * (config.initialGameSpeed / config.gameSpeed), 0.3f)
+            config.gameSpeed = min(config.gameSpeed * 1.1f, config.maxGameSpeed)
+            config.obstacleSpawnInterval = max(1.0f * (config.initialGameSpeed / config.gameSpeed), 0.3f)
             lastSpeedIncreaseTime = gameTime
         }
         
@@ -206,30 +236,22 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
                     shakeDuration = 0.5f
                     audio.playSound("crash")
                     
-                    // Impact squash effect
-                    player.scaleX = 1.5f
-                    player.scaleY = 0.5f
-                    
                     if (player.health <= 0) {
                         isGameOver = true
                         val playerName = System.getProperty("user.name") ?: "Player"
                         
-                        // Save local
                         highscoreManager.saveScore(playerName, score)
                         highScore = highscoreManager.loadScores().firstOrNull()?.score ?: score
                         
-                        // Save remote to Supabase
                         isUploading = true
-                        game.supabaseHighscoreManager.saveScore(playerName, score) { success ->
+                        game.supabaseHighscoreManager.saveScore(playerName, score) { _ ->
                             isUploading = false
-                            // After saving, fetch top 10 to update the list
                             game.supabaseHighscoreManager.fetchTopScores(10) { scores ->
                                 remoteScores.clear()
                                 remoteScores.addAll(scores)
                             }
                         }
                         
-                        // Initial fetch even if save is in progress
                         game.supabaseHighscoreManager.fetchTopScores(10) { scores ->
                             if (remoteScores.isEmpty()) {
                                 remoteScores.addAll(scores)
@@ -249,7 +271,7 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
     }
 
     private fun spawnObstacle() {
-        val types = ObstacleType.values()
+        val types = ObstacleType.entries
         val type = types[MathUtils.random(0, types.size - 1)]
         val lane = MathUtils.random(0, config.numLanes - 1)
         val baseWidth = laneManager.laneWidth * 0.45f
@@ -267,6 +289,9 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
             }
             ObstacleType.MOVING -> {
                 obstacles.add(Obstacle(lane, config.virtualHeight, baseWidth, baseHeight, type, 150f))
+            }
+            ObstacleType.PEDESTRIAN -> {
+                obstacles.add(Obstacle(lane, config.virtualHeight, laneManager.laneWidth * 0.3f, laneManager.laneWidth * 0.5f, type))
             }
         }
     }
@@ -289,6 +314,7 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
         shapeRenderer.projectionMatrix = camera.combined
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled)
 
+        // Draw road lanes
         for (i in 0..config.numLanes) {
             val x = i * laneManager.laneWidth
             
@@ -313,111 +339,26 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
             shapeRenderer.rect(mark.x - mark.width / 2, mark.y, mark.width, 30f)
         }
 
+        // Draw obstacles using their internal draw method
         for (obstacle in obstacles) {
-            // Shadow
-            shapeRenderer.color.set(0f, 0f, 0f, 0.3f)
-            shapeRenderer.rect(
-                obstacle.bounds.x + 10f,
-                obstacle.bounds.y - 10f,
-                obstacle.bounds.width / 2f,
-                obstacle.bounds.height / 2f,
-                obstacle.bounds.width,
-                obstacle.bounds.height,
-                obstacle.scaleX, obstacle.scaleY,
-                0f
-            )
-
-            // Main shape
-            shapeRenderer.color = when (obstacle.type) {
-                ObstacleType.STANDARD -> Color.ORANGE
-                ObstacleType.LONG -> Color.BROWN
-                ObstacleType.WIDE -> Color.PURPLE
-                ObstacleType.MOVING -> Color.CYAN
-            }
-            shapeRenderer.rect(
-                obstacle.bounds.x,
-                obstacle.bounds.y,
-                obstacle.bounds.width / 2f,
-                obstacle.bounds.height / 2f,
-                obstacle.bounds.width,
-                obstacle.bounds.height,
-                obstacle.scaleX, obstacle.scaleY,
-                0f
-            )
+            obstacle.draw(shapeRenderer, laneManager.laneWidth)
         }
+        
+        // Draw Player and Weapon using PlayerVehicle's draw method
+        player.draw(shapeRenderer)
 
         shapeRenderer.end()
 
-        if (playerTexture == null) {
-            shapeRenderer.begin(ShapeRenderer.ShapeType.Filled)
-            if (isGameOver) shapeRenderer.color = Color.GRAY else shapeRenderer.color = Color.RED
-            shapeRenderer.rect(
-                player.bounds.x,
-                player.bounds.y + player.bounceY,
-                player.bounds.width / 2,
-                player.bounds.height / 2,
-                player.bounds.width,
-                player.bounds.height,
-                player.scaleX, player.scaleY,
-                player.rotation
-            )
-            shapeRenderer.end()
-        }
-
         batch.projectionMatrix = camera.combined
         batch.begin()
-        
-        playerTexture?.let {
-            val isVisible = !player.isInvulnerable || (gameTime * 10).toInt() % 2 == 0
-            if (isVisible) {
-                // Determine drawing dimensions based on rotation offset to prevent squashing
-                val isRotated = (player.type.rotationOffset / 90f).toInt() % 2 != 0
-                val drawW = if (isRotated) player.bounds.height else player.bounds.width
-                val drawH = if (isRotated) player.bounds.width else player.bounds.height
-                
-                // Shadow
-                batch.setColor(0f, 0f, 0f, 0.4f)
-                batch.draw(
-                    it,
-                    player.visualX - drawW / 2 + 15f,
-                    player.bounds.y + player.bounds.height / 2 - drawH / 2 + player.bounceY - 15f,
-                    drawW / 2,
-                    drawH / 2,
-                    drawW,
-                    drawH,
-                    player.scaleX, player.scaleY,
-                    player.rotation + player.type.rotationOffset,
-                    0, 0,
-                    it.width,
-                    it.height,
-                    false, false
-                )
 
-                // Main sprite
-                batch.setColor(1f, 1f, 1f, 1f)
-                batch.draw(
-                    it,
-                    player.visualX - drawW / 2,
-                    player.bounds.y + player.bounds.height / 2 - drawH / 2 + player.bounceY,
-                    drawW / 2,
-                    drawH / 2,
-                    drawW,
-                    drawH,
-                    player.scaleX, player.scaleY,
-                    player.rotation + player.type.rotationOffset,
-                    0, 0,
-                    it.width,
-                    it.height,
-                    false, false
-                )
-            }
-        }
-        
         font.color = Color.WHITE
         font.draw(batch, "Score: $score", 20f, config.virtualHeight - 20f)
         font.draw(batch, "Best: $highScore", 20f, config.virtualHeight - 80f)
         font.draw(batch, "Vehicle: ${player.type.name}", 20f, config.virtualHeight - 140f)
         font.draw(batch, "Health: ${player.health}%", 20f, config.virtualHeight - 200f)
+        font.draw(batch, "Weapon: ${player.weapon?.type?.name ?: "NONE"}", 20f, config.virtualHeight - 260f)
+
 
         if (isGameOver) {
             font.color = Color.RED
@@ -426,14 +367,12 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
             font.color = Color.WHITE
             font.data.setScale(1.5f)
             
-            // Local Scores
             font.draw(batch, "--- LOCAL TOP 5 ---", config.virtualWidth / 2f - 350f, config.virtualHeight / 2f + 320f)
             val localTop = highscoreManager.loadScores().take(5)
             localTop.forEachIndexed { index, entry ->
                 font.draw(batch, "${index + 1}. ${entry.name}: ${entry.score}", config.virtualWidth / 2f - 350f, config.virtualHeight / 2f + 280f - index * 35f)
             }
 
-            // Global Scores
             font.draw(batch, "--- GLOBAL TOP 5 ---", config.virtualWidth / 2f + 50f, config.virtualHeight / 2f + 320f)
             if (remoteScores.isEmpty()) {
                 font.draw(batch, "Loading...", config.virtualWidth / 2f + 50f, config.virtualHeight / 2f + 280f)
@@ -445,7 +384,7 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
 
             if (isUploading) {
                 font.color = Color.CYAN
-                font.draw(batch, "Uploading your score...", config.virtualWidth / 2f - 150f, config.virtualHeight / 2f + 360f)
+                font.draw(batch, "Uploading your score...", config.virtualWidth / 2f - 190f, config.virtualHeight / 2f + 360f)
             }
 
             font.data.setScale(3f)
@@ -464,6 +403,5 @@ class GameScreen(private val game: AutoslalomGame) : ScreenAdapter() {
         shapeRenderer.dispose()
         batch.dispose()
         font.dispose()
-        playerTexture?.dispose()
     }
 }

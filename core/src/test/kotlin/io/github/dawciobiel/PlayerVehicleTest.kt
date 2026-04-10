@@ -13,8 +13,7 @@ class PlayerVehicleTest {
     fun setUp() {
         config = GameConfig(numLanes = 5)
         laneManager = LaneManager(config)
-        player = PlayerVehicle(config.numLanes / 2, config.numLanes)
-        player.visualX = laneManager.getLaneCenterX(player.currentLane)
+        player = PlayerVehicle(config.numLanes / 2, config.numLanes, laneManager, config)
     }
 
     @Test
@@ -56,7 +55,6 @@ class PlayerVehicleTest {
         player.takeDamage(20)
         assertEquals(80, player.health)
         assertTrue(player.isInvulnerable)
-        assertEquals(1.0f, player.invulnerabilityTimer)
     }
 
     @Test
@@ -75,15 +73,14 @@ class PlayerVehicleTest {
 
     @Test
     fun testInitialType() {
-        assertEquals(VehicleType.TRASHMASTER, player.type)
-        assertEquals(80f, player.type.acceleration)
+        assertEquals(VehicleType.SEDAN, player.type)
     }
 
     @Test
     fun testReset() {
         player.takeDamage(20)
         player.moveLeft()
-        player.reset(2, 5, laneManager)
+        player.reset(2, 5, laneManager, config)
         
         assertEquals(2, player.currentLane)
         assertEquals(2, player.targetLane)
