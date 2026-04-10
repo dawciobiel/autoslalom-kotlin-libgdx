@@ -22,7 +22,7 @@ data class RemoteScoreResponse(
 
 class SupabaseHighscoreManager(
     private val url: String = "https://utyvqcxggjtvylxfzxbv.supabase.co",
-    private val apiKey: String = "sb_publishable_MR5aQ_BDEtXgddDVCg9MdA_2JfkLDID"
+    private val apiKey: String = "sb_publishable_MR5aQ_BDEtXgddDVCg9MdA_2JfkLDID" // todo Extract those keys to config file
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val rb = HttpRequestBuilder()
