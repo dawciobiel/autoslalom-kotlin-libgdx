@@ -2,7 +2,8 @@
 
 1. [DONE] System zapisu wyników (Supabase).
 2. [DONE] Dodanie animacji obiektów.
-
+3. Stworzyć postać w grze rysowaną za pomocą prostych kształtów. Elementy postaci: ręce, nogi, głowa, tułów, broń. Broń powinna być osobnym obiektem w grze, niezależnym od postaci. W taki sposób aby można było dodawać kolejne bronie do postaci. 
+4. Stworzyć możliwość animowania postaci stworzonej za pomocą prostych kształtów. Animacja powinna być prosta za pomocą przekształceń obiektu postaci. Na przykład chodzenie/bieganie. 
 
 - - -
 Ad.2. Add object animation.
